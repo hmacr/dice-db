@@ -5,22 +5,41 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/hmacr/dice-db/config"
+	"github.com/hmacr/dice-db/core"
 )
 
-func readCommand(conn net.Conn) (string, error) {
+func readCommand(conn net.Conn) (*core.RedisCmd, error) {
+	// TODO: max read in one shot is 512 bytes
+	// To allow input > 512 bytes, then repeated read until we get
 	buf := make([]byte, 512)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(buf[:n]), nil
+
+	tokens, err := core.DecodeArrayString(buf[:n])
+	if err != nil {
+		return nil, err
+	}
+
+	return &core.RedisCmd{
+		Cmd:  strings.ToUpper(tokens[0]),
+		Args: tokens[1:],
+	}, nil
 }
 
-func respond(cmd string, conn net.Conn) error {
-	_, err := conn.Write([]byte(cmd))
-	return err
+func respondError(err error, conn net.Conn) {
+	conn.Write([]byte(fmt.Sprintf("-%s\r\n", err)))
+}
+
+func respond(cmd *core.RedisCmd, conn net.Conn) {
+	err := core.EvalAndRespond(cmd, conn)
+	if err != nil {
+		respondError(err, conn)
+	}
 }
 
 func RunSyncTCPServer() {
@@ -57,10 +76,7 @@ func RunSyncTCPServer() {
 				}
 				log.Printf("error reading command: %v\n", err)
 			}
-			log.Printf("command: %s\n", cmd)
-			if err = respond(cmd, conn); err != nil {
-				log.Printf("error writing back: %v\n", err)
-			}
+			respond(cmd, conn)
 		}
 	}
 }
