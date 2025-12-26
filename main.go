@@ -17,5 +17,8 @@ func setupFlags() {
 func main() {
 	setupFlags()
 	log.Println("rolling the dice 🎲")
-	server.RunSyncTCPServer()
+	err := server.RunAsyncTCPServer()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

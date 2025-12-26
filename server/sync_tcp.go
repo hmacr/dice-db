@@ -11,11 +11,11 @@ import (
 	"github.com/hmacr/dice-db/core"
 )
 
-func readCommand(conn net.Conn) (*core.RedisCmd, error) {
+func readCommand(c io.ReadWriter) (*core.RedisCmd, error) {
 	// TODO: max read in one shot is 512 bytes
 	// To allow input > 512 bytes, then repeated read until we get
 	buf := make([]byte, 512)
-	n, err := conn.Read(buf)
+	n, err := c.Read(buf)
 	if err != nil {
 		return nil, err
 	}
@@ -31,14 +31,14 @@ func readCommand(conn net.Conn) (*core.RedisCmd, error) {
 	}, nil
 }
 
-func respondError(err error, conn net.Conn) {
-	conn.Write([]byte(fmt.Sprintf("-%s\r\n", err)))
+func respondError(err error, c io.ReadWriter) {
+	c.Write([]byte(fmt.Sprintf("-%s\r\n", err)))
 }
 
-func respond(cmd *core.RedisCmd, conn net.Conn) {
-	err := core.EvalAndRespond(cmd, conn)
+func respond(cmd *core.RedisCmd, c io.ReadWriter) {
+	err := core.EvalAndRespond(cmd, c)
 	if err != nil {
-		respondError(err, conn)
+		respondError(err, c)
 	}
 }
 
