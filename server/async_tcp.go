@@ -4,12 +4,15 @@ import (
 	"log"
 	"net"
 	"syscall"
+	"time"
 
 	"github.com/hmacr/dice-db/config"
 	"github.com/hmacr/dice-db/core"
 )
 
 var connections int = 0
+var cronFrequency time.Duration = 1 * time.Second
+var lastCronExecTime time.Time = time.Now()
 
 const maxConnections int = 20_000
 
@@ -82,6 +85,12 @@ func RunAsyncTCPServer() error {
 	}
 
 	for {
+		// Run cron job for active deletion of expired keys
+		if time.Now().After(lastCronExecTime.Add(cronFrequency)) {
+			core.DeleteExpiredKeys()
+			lastCronExecTime = time.Now()
+		}
+
 		// See if any FD is ready for IO
 		n, err := syscall.Kevent(kqueueFD, nil, events, nil)
 		if err != nil {

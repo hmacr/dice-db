@@ -101,13 +101,13 @@ func evalTTL(args []string, c io.ReadWriter) error {
 
 	// If key does not exist, return -2
 	if obj == nil {
-		c.Write(Encode(int64(-2), false))
+		c.Write(Encode(-2, false))
 		return nil
 	}
 
 	// If key exists but no expiration is set on it, then send -1
 	if obj.ExpiresAt == -1 {
-		c.Write(Encode(int64(-1), false))
+		c.Write(Encode(-1, false))
 		return nil
 	}
 
@@ -116,11 +116,50 @@ func evalTTL(args []string, c io.ReadWriter) error {
 
 	// If key already expired, return -2
 	if durationMs < 0 {
-		c.Write(Encode(int64(-2), false))
+		c.Write(Encode(-2, false))
 		return nil
 	}
 
-	c.Write(Encode(int64(durationMs/1000), false))
+	c.Write(Encode(durationMs/1000, false))
+	return nil
+}
+
+func evalDEL(args []string, c io.ReadWriter) error {
+	var countDeleted int = 0
+
+	for _, key := range args {
+		if ok := Del(key); ok {
+			countDeleted++
+		}
+	}
+
+	c.Write(Encode(countDeleted, false))
+	return nil
+}
+
+func evalEXPIRE(args []string, c io.ReadWriter) error {
+	if len(args) <= 1 {
+		return errors.New("(error) ERR wrong number of arguments for 'expire' command")
+	}
+
+	var key string = args[0]
+	exDurationSec, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return errors.New("(error) ERR value is not an integer or out of range")
+	}
+
+	obj := Get(key)
+
+	// 0 if the timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments
+	if obj == nil {
+		c.Write(Encode(0, false))
+		return nil
+	}
+
+	obj.ExpiresAt = time.Now().UnixMilli() + exDurationSec*1000
+
+	// 1 if the timeout was set
+	c.Write(Encode(1, false))
 	return nil
 }
 
@@ -135,6 +174,10 @@ func EvalAndRespond(cmd *RedisCmd, c io.ReadWriter) error {
 		return evalGET(cmd.Args, c)
 	case "TTL":
 		return evalTTL(cmd.Args, c)
+	case "DEL":
+		return evalDEL(cmd.Args, c)
+	case "EXPIRE":
+		return evalEXPIRE(cmd.Args, c)
 	default:
 		return evalPING(cmd.Args, c)
 	}
