@@ -1,7 +1,6 @@
 package core
 
 import (
-	"log"
 	"time"
 )
 
@@ -41,5 +40,4 @@ func DeleteExpiredKeys() {
 			break
 		}
 	}
-	log.Printf("deleted the expired but undeleted keys.. total keys remaining = %d\n", len(store))
 }
