@@ -18,7 +18,7 @@ const maxConnections int = 20_000
 
 /*
 
-1. Create an KQUEUE using `kqueue` system call for receiving I/O signals from Kernel.
+1. Create a KQUEUE using `kqueue` system call for receiving I/O signals from Kernel.
 2. Create a server socket/FD for accepting client connections.
 3. Add server socket to the KQUEUE for EVFILT_READ signal using `kevent` system call.
 4. Wait for EPOLL signal using `kevent` system call.
