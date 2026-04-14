@@ -7,6 +7,6 @@ var KeysLimit int = 100
 
 // will evict percentage of keys whenever eviction runs
 var EvictionRatio float64 = 0.40
-var EvictionStrategy string = "allkeys-random"
+var EvictionStrategy string = "allkeys-lru"
 
 var AOFFile string = "./dice-master.aof"
