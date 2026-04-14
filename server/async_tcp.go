@@ -3,6 +3,9 @@ package server
 import (
 	"log"
 	"net"
+	"os"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -16,6 +19,33 @@ var lastCronExecTime time.Time = time.Now()
 
 const maxConnections int = 20_000
 
+const EngineStatus_WAITING int32 = 1 << 1
+const EngineStatus_BUSY int32 = 1 << 2
+const EngineStatus_SHUTTING_DOWN int32 = 1 << 3
+
+var eStatus int32 = EngineStatus_WAITING
+
+func WaitForSignal(wg *sync.WaitGroup, sigs chan os.Signal) {
+	defer wg.Done()
+	<-sigs
+
+	// If server is busy, continue to wait
+	for atomic.LoadInt32(&eStatus) == EngineStatus_BUSY {
+	}
+
+	// CRITICAL TO HANDLE
+	// We do not want server to ever go back to BUSY state
+	// when control flow is here ->
+
+	// immediately set the status to be SHUTTING DOWN
+	// the only place where we can set the status to be SHUTTING DOWN
+	atomic.StoreInt32(&eStatus, EngineStatus_SHUTTING_DOWN)
+
+	// If server is in any other state, initiate shutdown
+	core.Shutdown()
+	os.Exit(0)
+}
+
 /*
 
 1. Create a KQUEUE using `kqueue` system call for receiving I/O signals from Kernel.
@@ -27,7 +57,11 @@ const maxConnections int = 20_000
 
 */
 
-func RunAsyncTCPServer() error {
+func RunAsyncTCPServer(wg *sync.WaitGroup) error {
+	defer wg.Done()
+	defer func() {
+		atomic.StoreInt32(&eStatus, EngineStatus_SHUTTING_DOWN)
+	}()
 	log.Printf("starting an asynchronous TCP server on %s:%d\n", config.Host, config.Port)
 
 	// Create KQUEUE event objects to hold events
@@ -84,7 +118,8 @@ func RunAsyncTCPServer() error {
 		return err
 	}
 
-	for {
+	// Loop until server is not shutting down
+	for atomic.LoadInt32(&eStatus) != EngineStatus_SHUTTING_DOWN {
 		// Run cron job for active deletion of expired keys
 		if time.Now().After(lastCronExecTime.Add(cronFrequency)) {
 			core.DeleteExpiredKeys()
@@ -95,6 +130,20 @@ func RunAsyncTCPServer() error {
 		n, err := syscall.Kevent(kqueueFD, nil, events, nil)
 		if err != nil {
 			continue
+		}
+
+		// Here, we do not want server to go back from SHUTTING DOWN to BUSY.
+		// If the engine status == SHUTTING_DOWN over here, we have to exit.
+		// Hence the only legal transitiion is from WAITING to BUSY.
+		// If that does not happen then we can exit.
+
+		// mark engine as BUSY only when it is in the waiting state
+		if !atomic.CompareAndSwapInt32(&eStatus, EngineStatus_WAITING, EngineStatus_BUSY) {
+			// if swap unsuccessful then the existing status is not WAITING, but something else
+			switch eStatus {
+			case EngineStatus_SHUTTING_DOWN:
+				return nil
+			}
 		}
 
 		for i := 0; i < n; i++ {
@@ -139,5 +188,11 @@ func RunAsyncTCPServer() error {
 				respond(cmds, comm)
 			}
 		}
+
+		// mark engine as WAITING
+		// no contention as the signal handler is blocked until the engine is BUSY
+		atomic.StoreInt32(&eStatus, EngineStatus_WAITING)
 	}
+
+	return nil
 }
